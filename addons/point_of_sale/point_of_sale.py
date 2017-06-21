@@ -28,7 +28,7 @@ from openerp import tools
 from openerp.osv import fields, osv
 from openerp.tools import float_is_zero
 from openerp.tools.translate import _
-
+from openerp.tools.dlog import dlog
 import openerp.addons.decimal_precision as dp
 import openerp.addons.product.product
 
@@ -610,6 +610,7 @@ class pos_order(osv.osv):
 
             return new_session_id
 
+    @dlog
     def _process_order(self, cr, uid, order, context=None):
         session = self.pool.get('pos.session').browse(cr, uid, order['pos_session_id'], context=context)
 
@@ -654,6 +655,7 @@ class pos_order(osv.osv):
             }, context=context)
         return order_id
 
+    @dlog    
     def create_from_ui(self, cr, uid, orders, context=None):
         # Keep only new orders
         submitted_references = [o['data']['name'] for o in orders]
