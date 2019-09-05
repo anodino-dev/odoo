@@ -2488,7 +2488,11 @@ class BaseModel(object):
                             cr.execute("SELECT indexname FROM pg_indexes WHERE indexname = %s and tablename = %s", (indexname, self._table))
                             res2 = cr.dictfetchall()
                             if not res2 and field.index:
-                                cr.execute('CREATE INDEX "%s_%s_index" ON "%s" ("%s")' % (self._table, name, self._table, name))
+                                try:  # DO NOT FORWARD-PORT TO SAAS-15 AND UP (stop at saas-14)
+                                    with cr.savepoint():
+                                        cr.execute('CREATE INDEX "%s_%s_index" ON "%s" ("%s")' % (self._table, name, self._table, name))
+                                except psycopg2.OperationalError as e:
+                                    _schema.error('Unable to add index for %s (%s):\n %s', self._table, name, e.message)
                                 cr.commit()
                                 if field.type == 'text':
                                     # FIXME: for fields.text columns we should try creating GIN indexes instead (seems most suitable for an ERP context)
@@ -2977,9 +2981,13 @@ class BaseModel(object):
             if invalid_fields:
                 _logger.info('Access Denied by ACLs for operation: %s, uid: %s, model: %s, fields: %s',
                     operation, self._uid, self._name, ', '.join(invalid_fields))
-                raise AccessError(_('The requested operation cannot be completed due to security restrictions. '
-                                    'Please contact your system administrator.\n\n(Document type: %s, Operation: %s)') % \
-                                  (self._description, operation))
+                raise AccessError(
+                    _(
+                        'The requested operation cannot be completed due to security restrictions. '
+                        'Please contact your system administrator.\n\n(Document type: %s, Operation: %s)'
+                    ) % (self._description, operation)
+                    + ' - ({} {}, {} {})'.format(_('User:'), self._uid, _('Fields:'), ', '.join(invalid_fields))
+                )
 
         return fields
 
@@ -3193,8 +3201,8 @@ class BaseModel(object):
             if forbidden:
                 # store an access error exception in existing records
                 exc = AccessError(
-                    _('The requested operation cannot be completed due to security restrictions. Please contact your system administrator.\n\n(Document type: %s, Operation: %s)') % \
-                    (self._name, 'read')
+                    _('The requested operation cannot be completed due to security restrictions. Please contact your system administrator.\n\n(Document type: %s, Operation: %s)') % (self._description, 'read')
+                    + ' - ({} {}, {} {})'.format(_('Records:'), self.ids[:6], _('User:'), self._uid)
                 )
                 forbidden._cache.update(FailedValue(exc))
 
@@ -3278,8 +3286,10 @@ class BaseModel(object):
                 if self._uid == SUPERUSER_ID:
                     return
                 _logger.info('Access Denied by record rules for operation: %s on record ids: %r, uid: %s, model: %s', operation, forbidden_ids, self._uid, self._name)
-                raise AccessError(_('The requested operation cannot be completed due to security restrictions. Please contact your system administrator.\n\n(Document type: %s, Operation: %s)') % \
-                                    (self._description, operation))
+                raise AccessError(
+                    _('The requested operation cannot be completed due to security restrictions. Please contact your system administrator.\n\n(Document type: %s, Operation: %s)') % (self._description, operation)
+                    + ' - ({} {}, {}, {})'.format(_('Records:'), forbidden_ids[:6], _('User:'), self._uid)
+                )
             else:
                 # If we get here, the missing_ids are not in the database
                 if operation in ('read','unlink'):
@@ -3288,7 +3298,13 @@ class BaseModel(object):
                     # errors for non-transactional search/read sequences coming from clients
                     return
                 _logger.info('Failed operation on deleted record(s): %s, uid: %s, model: %s', operation, self._uid, self._name)
-                raise MissingError(_('Missing document(s)') + ':' + _('One of the documents you are trying to access has been deleted, please try again after refreshing.'))
+                raise MissingError(
+                    _('Missing document(s)') + ':' + _('One of the documents you are trying to access has been deleted, please try again after refreshing.')
+                    + '\n\n({} {}, {} {}, {} {}, {} {})'.format(
+                        _('Document type:'), self._description, _('Operation:'), operation,
+                        _('Records:'), missing_ids[:6], _('User:'), self._uid,
+                    )
+                )
 
     @api.model
     def check_access_rights(self, operation, raise_exception=True):
@@ -3676,7 +3692,10 @@ class BaseModel(object):
             for sub_ids in cr.split_for_in_conditions(set(self.ids)):
                 cr.execute(query, params + (sub_ids,))
                 if cr.rowcount != len(sub_ids):
-                    raise MissingError(_('One of the records you are trying to modify has already been deleted (Document type: %s).') % self._description)
+                    raise MissingError(
+                        _('One of the records you are trying to modify has already been deleted (Document type: %s).') % self._description
+                        + '\n\n({} {}, {} {})'.format(_('Records:'), sub_ids[:6], _('User:'), self._uid)
+                    )
 
             # TODO: optimize
             for name in direct:
@@ -4453,7 +4472,10 @@ class BaseModel(object):
         existing = self.browse(ids + new_ids)
         if len(existing) < len(self):
             # mark missing records in cache with a failed value
-            exc = MissingError(_("Record does not exist or has been deleted."))
+            exc = MissingError(
+                _("Record does not exist or has been deleted.")
+                + u'\n\n({} {}, {} {})'.format(_('Records:'), (self - existing).ids[:6], _('User:'), self._uid)
+            )
             (self - existing)._cache.update(FailedValue(exc))
         return existing
 
