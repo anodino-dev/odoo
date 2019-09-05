@@ -149,10 +149,9 @@ class sale_order(osv.osv):
         return [('id', 'in', [x[0] for x in res])]
 
     def _get_order(self, cr, uid, ids, context=None):
-        result = {}
-        for line in self.pool.get('sale.order.line').browse(cr, uid, ids, context=context):
-            result[line.order_id.id] = True
-        return result.keys()
+        line_obj = self.pool.get('sale.order.line')
+        return list(set(line['order_id'] for line in line_obj.read(
+            cr, uid, ids, ['order_id'], load='_classic_write', context=context)))
 
     def _get_default_company(self, cr, uid, context=None):
         company_id = self.pool.get('res.users')._get_company(cr, uid, context=context)
@@ -1153,9 +1152,7 @@ class sale_order_line(osv.osv):
                 uos = False
 
         fpos = False
-        if not fiscal_position:
-            fpos = partner.property_account_position or False
-        else:
+        if fiscal_position:
             fpos = self.pool.get('account.fiscal.position').browse(cr, uid, fiscal_position)
 
         if uid == SUPERUSER_ID and context.get('company_id'):
@@ -1226,7 +1223,7 @@ class sale_order_line(osv.osv):
                 if context.get('uom_qty_change', False):
                     values = {'price_unit': price}
                     for field in ['product_uos_qty', 'th_weight']:
-                        if result.get(field):
+                        if not result.get(field, False) is False:
                             values[field] = result[field]
                     return {'value': values, 'domain': {}, 'warning': False}
         if warning_msgs:

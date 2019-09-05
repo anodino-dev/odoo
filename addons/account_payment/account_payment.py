@@ -296,7 +296,9 @@ class payment_line(osv.osv):
         'name': fields.char('Your Reference', required=True),
         'communication': fields.char('Communication', required=True, help="Used as the message between ordering customer and current company. Depicts 'What do you want to say to the recipient about this order ?'"),
         'communication2': fields.char('Communication 2', help='The successor message of Communication.'),
-        'move_line_id': fields.many2one('account.move.line', 'Entry line', domain=[('reconcile_id', '=', False), ('account_id.type', '=', 'payable')], help='This Entry Line will be referred for the information of the ordering customer.'),
+        'move_line_id': fields.many2one('account.move.line', 'Entry line', domain=[('reconcile_id', '=', False), ('account_id.type', '=', 'payable')],
+                                        select=True,
+                                        help='This Entry Line will be referred for the information of the ordering customer.'),
         'amount_currency': fields.float('Amount in Partner Currency', digits=(16, 2),
             required=True, help='Payment amount in the partner currency'),
         'currency': fields.many2one('res.currency','Partner Currency', required=True),
@@ -329,7 +331,7 @@ class payment_line(osv.osv):
         'date': _get_date,
     }
     _sql_constraints = [
-        ('name_uniq', 'UNIQUE(name)', 'The payment line name must be unique!'),
+        ('name_uniq', 'UNIQUE(name, company_id)', 'The payment line name must be unique per company!'),
     ]
 
     def onchange_move_line(self, cr, uid, ids, move_line_id, payment_type, date_prefered, date_scheduled, currency=False, company_currency=False, context=None):

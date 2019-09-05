@@ -22,7 +22,7 @@
 import time
 from datetime import datetime
 
-from openerp import workflow
+from openerp import api, workflow
 from openerp.osv import fields, osv
 from openerp.tools.translate import _
 import openerp.addons.decimal_precision as dp
@@ -607,6 +607,27 @@ class account_move_line(osv.osv):
             cr.execute('CREATE INDEX account_move_line_date_id_index ON account_move_line (date DESC, id desc)')
         return res
 
+    @api.constrains('reconcile_id', 'reconcile_partial_id')
+    def _check_reconcile_same_partner(self):
+        """ Ensure the partner is the same or empty on all lines and a reconcile mark.
+            We allow that only for opening/closing period"""
+        for line in self:
+            rec = False
+            move_lines = []
+            if line.reconcile_id:
+                rec = line.reconcile_id
+                move_lines = rec.line_id
+            elif line.reconcile_partial_id:
+                rec = line.reconcile_partial_id
+                move_lines = rec.line_partial_ids
+            if rec and not rec.opening_reconciliation:
+                first_partner = line.partner_id
+                for rline in move_lines:
+                    if (rline.partner_id != first_partner and
+                            rline.account_id.type in ('receivable', 'payable')):
+                        raise osv.except_osv(
+                                _('Error!'), _("You can only reconcile journal items with the same partner."))
+
     def _check_no_view(self, cr, uid, ids, context=None):
         lines = self.browse(cr, uid, ids, context=context)
         for l in lines:
@@ -665,7 +686,7 @@ class account_move_line(osv.osv):
         (_check_no_view, 'You cannot create journal items on an account of type view or consolidation.', ['account_id']),
         (_check_no_closed, 'You cannot create journal items on closed account.', ['account_id']),
         (_check_company_id, 'Account and Period must belong to the same company.', ['company_id']),
-        (_check_date, 'The date of your Journal Entry is not in the defined period! You should change the date or remove this constraint from the journal.', ['date']),
+        (_check_date, 'The date of your Journal Entry is not in the defined period! You should change the date or remove this constraint from the journal.', ['date', 'period_id']),
         (_check_currency, 'The selected account of your Journal Entry forces to provide a secondary currency. You should remove the secondary currency on the account or select a multi-currency view on the journal.', ['currency_id']),
         (_check_currency_and_amount, "You cannot create journal items with a secondary currency without recording both 'currency' and 'amount currency' field.", ['currency_id','amount_currency']),
         (_check_currency_amount, 'The amount expressed in the secondary currency must be positive when account is debited and negative when account is credited.', ['amount_currency']),

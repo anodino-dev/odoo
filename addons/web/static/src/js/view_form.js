@@ -3469,12 +3469,12 @@ instance.web.form.CompletionFieldMixin = {
         var pop = new instance.web.form.SelectCreatePopup(this);
         pop.select_element(
             self.field.relation,
-            {
+            _.extend(this.options || {}, {
                 title: (view === 'search' ? _t("Search: ") : _t("Create: ")) + this.string,
                 initial_ids: ids ? _.map(ids, function(x) {return x[0];}) : undefined,
                 initial_view: view,
                 disable_multiple_selection: true
-            },
+            }),
             self.build_domain(),
             new instance.web.CompoundContext(self.build_context(), context || {})
         );
@@ -4369,6 +4369,9 @@ instance.web.form.FieldOne2Many = instance.web.form.AbstractField.extend({
             return view.controller.is_valid();
         }
         return true;
+    },
+    is_false: function() {
+        return _(this.get_value()).isEmpty();
     },
 });
 
@@ -5417,19 +5420,23 @@ instance.web.form.SelectCreatePopup = instance.web.form.AbstractFormPopup.extend
                 contexts: [this.context]
             }).done(function (results) {
                 var search_defaults = {};
+                var options = {};
                 _.each(results.context, function (value_, key) {
                     var match = /^search_default_(.*)$/.exec(key);
                     if (match) {
                         search_defaults[match[1]] = value_;
                     }
+                    if (key === 'search_disable_custom_filters'){
+                        options['disable_custom_filters'] = value_;
+                    }
                 });
-                self.setup_search_view(search_defaults);
+                self.setup_search_view(search_defaults, options);
             });
         } else { // "form"
             this.new_object();
         }
     },
-    setup_search_view: function(search_defaults) {
+    setup_search_view: function(search_defaults, options) {
         var self = this;
         if (this.searchview) {
             this.searchview.destroy();
@@ -5438,7 +5445,7 @@ instance.web.form.SelectCreatePopup = instance.web.form.AbstractFormPopup.extend
             this.searchview_drawer.destroy();
         }
         this.searchview = new instance.web.SearchView(this,
-                this.dataset, false,  search_defaults);
+                this.dataset, false,  search_defaults, options);
         this.searchview_drawer = new instance.web.SearchViewDrawer(this, this.searchview);
         this.searchview.on('search_data', self, function(domains, contexts, groupbys) {
             if (self.initial_ids) {
@@ -6067,6 +6074,21 @@ instance.web.form.FieldStatus = instance.web.form.AbstractField.extend({
             'value_folded': _.find(self.selection.folded, function(i){return i[0] === self.get('value');})
         });
         self.$el.html(content);
+        if ('statusbar_colors' in self.node.attrs) {
+            var statusbar_colors = instance.web.py_eval(
+                    self.node.attrs.statusbar_colors
+                );
+            var color = statusbar_colors[self.get('value')];
+            if (color) {
+                var $color = $.Color(color);
+                var fr = $color.lightness(0.7);
+                var to = $color.lightness(0.4);
+                self.$(".oe_active, .oe_active > .arrow span").css(
+                    "background-image",
+                    'linear-gradient(to bottom, ' + fr.toHexString() + ', ' + to.toHexString() + ')'
+                );
+            }
+        }
     },
     calc_domain: function() {
         var d = instance.web.pyeval.eval('domain', this.build_domain());

@@ -14,7 +14,7 @@ msgstr ""
 "Project-Id-Version: Odoo 8.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2015-01-21 14:07+0000\n"
-"PO-Revision-Date: 2017-03-19 07:59+0000\n"
+"PO-Revision-Date: 2017-09-23 21:14+0000\n"
 "Last-Translator: liAnGjiA <liangjia@qq.com>\n"
 "Language-Team: Chinese (China) (http://www.transifex.com/odoo/odoo-8/language/zh_CN/)\n"
 "MIME-Version: 1.0\n"
@@ -125,7 +125,7 @@ msgstr "银行账户号码"
 #. module: hr
 #: view:hr.employee:hr.view_employee_form
 msgid "Birth"
-msgstr "出生"
+msgstr "出生信息"
 
 #. module: hr
 #: help:hr.job,state:0
@@ -378,7 +378,7 @@ msgstr "性别"
 #. module: hr
 #: view:hr.employee:hr.view_employee_filter view:hr.job:hr.view_job_filter
 msgid "Group By"
-msgstr "分组于"
+msgstr "分组"
 
 #. module: hr
 #: view:hr.employee:hr.view_employee_form
@@ -424,7 +424,7 @@ msgstr "ID"
 #. module: hr
 #: field:hr.employee,identification_id:0
 msgid "Identification No"
-msgstr "身份证号"
+msgstr "身份证号码"
 
 #. module: hr
 #: help:hr.employee,message_unread:0 help:hr.job,message_unread:0
@@ -486,7 +486,7 @@ msgstr "工作职位"
 #. module: hr
 #: field:hr.employee,job_id:0
 msgid "Job Title"
-msgstr "工作头衔"
+msgstr "职位"
 
 #. module: hr
 #: field:hr.department,jobs_ids:0 view:hr.job:hr.view_job_filter
@@ -609,7 +609,7 @@ msgstr "信息和通信历史记录"
 #: field:hr.department,complete_name:0 field:hr.employee,name_related:0
 #: field:hr.employee.category,complete_name:0
 msgid "Name"
-msgstr "姓名"
+msgstr "名称"
 
 #. module: hr
 #: field:hr.employee,country_id:0
@@ -687,7 +687,7 @@ msgstr "上级员工标签"
 #. module: hr
 #: field:hr.employee,passport_id:0
 msgid "Passport No"
-msgstr "护照号"
+msgstr "护照"
 
 #. module: hr
 #: model:ir.actions.act_window,name:hr.open_payroll_modules
@@ -732,7 +732,7 @@ msgstr "正在招聘"
 #. module: hr
 #: view:hr.employee:hr.view_employee_form
 msgid "Related User"
-msgstr "相关的用户"
+msgstr "关联账户"
 
 #. module: hr
 #: field:res.users,employee_ids:0
@@ -953,12 +953,12 @@ msgstr "工作邮箱"
 #. module: hr
 #: field:hr.employee,mobile_phone:0
 msgid "Work Mobile"
-msgstr "办公手机"
+msgstr "工作手机"
 
 #. module: hr
 #: field:hr.employee,work_phone:0
 msgid "Work Phone"
-msgstr "办公电话"
+msgstr "工作电话"
 
 #. module: hr
 #: field:hr.employee,address_id:0
