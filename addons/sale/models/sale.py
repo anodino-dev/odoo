@@ -29,7 +29,7 @@ class SaleOrder(models.Model):
                 amount_untaxed += line.price_subtotal
                 # FORWARDPORT UP TO 10.0
                 if order.company_id.tax_calculation_rounding_method == 'round_globally':
-                    price = line.price_unit * (1 - (line.discount or 0.0) / 100.0)
+                    price = line.price_unit * (1 - (line._get_discount() or 0.0) / 100.0)
                     taxes = line.tax_id.compute_all(price, line.order_id.currency_id, line.product_uom_qty, product=line.product_id, partner=order.partner_shipping_id)
                     amount_tax += sum(t.get('amount', 0.0) for t in taxes.get('taxes', []))
                 else:
@@ -511,7 +511,7 @@ class SaleOrder(models.Model):
         res = {}
         currency = self.currency_id or self.company_id.currency_id
         for line in self.order_line:
-            price_reduce = line.price_unit * (1.0 - line.discount / 100.0)
+            price_reduce = line.price_unit * (1.0 - line._get_discount() / 100.0)
             taxes = line.tax_id.compute_all(price_reduce, quantity=line.product_uom_qty, product=line.product_id, partner=self.partner_shipping_id)['taxes']
             for tax in line.tax_id:
                 group = tax.tax_group_id
@@ -558,13 +558,16 @@ class SaleOrderLine(models.Model):
             else:
                 line.invoice_status = 'no'
 
+    def _get_discount(self):
+        return self.discount
+    
     @api.depends('product_uom_qty', 'discount', 'price_unit', 'tax_id')
     def _compute_amount(self):
         """
         Compute the amounts of the SO line.
         """
         for line in self:
-            price = line.price_unit * (1 - (line.discount or 0.0) / 100.0)
+            price = line.price_unit * (1 - (line._get_discount() or 0.0) / 100.0)
             taxes = line.tax_id.compute_all(price, line.order_id.currency_id, line.product_uom_qty, product=line.product_id, partner=line.order_id.partner_shipping_id)
             line.update({
                 'price_tax': taxes['total_included'] - taxes['total_excluded'],
@@ -613,7 +616,7 @@ class SaleOrderLine(models.Model):
     @api.depends('price_unit', 'discount')
     def _get_price_reduce(self):
         for line in self:
-            line.price_reduce = line.price_unit * (1.0 - line.discount / 100.0)
+            line.price_reduce = line.price_unit * (1.0 - line._get_discount() / 100.0)
 
     @api.depends('price_total', 'product_uom_qty')
     def _get_price_reduce_tax(self):
