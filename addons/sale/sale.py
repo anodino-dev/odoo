@@ -61,7 +61,7 @@ class SaleOrder(models.Model):
             # Search for invoices which have been 'cancelled' (filter_refund = 'modify' in
             # 'account.invoice.refund')
             # use like as origin may contains multiple references (e.g. 'SO01, SO02')
-            refunds = invoice_ids.search([('origin', 'like', order.name)])
+            refunds = invoice_ids.search([('origin', 'like', order.name)]).filtered(lambda r: r.type in ['out_invoice', 'out_refund'])
             invoice_ids |= refunds.filtered(lambda r: order.name in [origin.strip() for origin in r.origin.split(',')])
             # Search for refunds as well
             refund_ids = self.env['account.invoice'].browse()
@@ -127,7 +127,7 @@ class SaleOrder(models.Model):
 
     pricelist_id = fields.Many2one('product.pricelist', string='Pricelist', required=True, readonly=True, states={'draft': [('readonly', False)], 'sent': [('readonly', False)]}, help="Pricelist for current sales order.")
     currency_id = fields.Many2one("res.currency", related='pricelist_id.currency_id', string="Currency", readonly=True, required=True)
-    project_id = fields.Many2one('account.analytic.account', 'Analytic Account', readonly=True, states={'draft': [('readonly', False)], 'sent': [('readonly', False)]}, help="The analytic account related to a sales order.", copy=False, domain=[('account_type', '=', 'normal')])
+    project_id = fields.Many2one('account.analytic.account', 'Analytic Account', readonly=True, states={'draft': [('readonly', False)], 'sent': [('readonly', False)]}, help="The analytic account related to a sales order.", copy=False, index=True, domain=[('account_type', '=', 'normal')])
 
     order_line = fields.One2many('sale.order.line', 'order_id', string='Order Lines', states={'cancel': [('readonly', True)], 'done': [('readonly', True)]}, copy=True)
 
@@ -225,7 +225,10 @@ class SaleOrder(models.Model):
     @api.model
     def create(self, vals):
         if vals.get('name', _('New')) == _('New'):
-            vals['name'] = self.env['ir.sequence'].next_by_code('sale.order') or _('New')
+            if 'company_id' in vals:
+                vals['name'] = self.env['ir.sequence'].with_context(force_company=vals['company_id']).next_by_code('sale.order') or _('New')
+            else:
+                vals['name'] = self.env['ir.sequence'].next_by_code('sale.order') or _('New')
 
         # Makes sure partner_invoice_id', 'partner_shipping_id' and 'pricelist_id' are defined
         if any(f not in vals for f in ['partner_invoice_id', 'partner_shipping_id', 'pricelist_id']):
@@ -308,6 +311,8 @@ class SaleOrder(models.Model):
         inv_obj = self.env['account.invoice']
         precision = self.env['decimal.precision'].precision_get('Product Unit of Measure')
         invoices = {}
+        invoices_origin = {}
+        invoices_name = {}
 
         for order in self:
             group_key = order.id if grouped else (order.partner_invoice_id.id, order.currency_id.id)
@@ -318,17 +323,21 @@ class SaleOrder(models.Model):
                     inv_data = order._prepare_invoice()
                     invoice = inv_obj.create(inv_data)
                     invoices[group_key] = invoice
+                    invoices_origin[group_key] = [invoice.origin]
+                    invoices_name[group_key] = [invoice.name]
                 elif group_key in invoices:
                     vals = {}
-                    if order.name not in invoices[group_key].origin.split(', '):
-                        vals['origin'] = invoices[group_key].origin + ', ' + order.name
-                    if order.client_order_ref and order.client_order_ref not in invoices[group_key].name.split(', '):
-                        vals['name'] = invoices[group_key].name + ', ' + order.client_order_ref
-                    invoices[group_key].write(vals)
+                    if order.name not in invoices_origin[group_key]:
+                        invoices_origin[group_key].append(order.name)
+                    if order.client_order_ref and order.client_order_ref not in invoices_name[group_key]:
+                        invoices_name[group_key].append(order.client_order_ref)
                 if line.qty_to_invoice > 0:
                     line.invoice_line_create(invoices[group_key].id, line.qty_to_invoice)
                 elif line.qty_to_invoice < 0 and final:
                     line.invoice_line_create(invoices[group_key].id, line.qty_to_invoice)
+        for group_key in invoices:
+            invoices[group_key].write({'name': ', '.join(invoices_name[group_key]),
+                                       'origin': ', '.join(invoices_origin[group_key])})
 
         if not invoices:
             raise UserError(_('There is no invoicable line.'))
@@ -337,7 +346,7 @@ class SaleOrder(models.Model):
             if not invoice.invoice_line_ids:
                 raise UserError(_('There is no invoicable line.'))
             # If invoice is negative, do a refund invoice instead
-            if invoice.amount_untaxed < 0:
+            if invoice.amount_total < 0:
                 invoice.type = 'out_refund'
                 for line in invoice.invoice_line_ids:
                     line.quantity = -line.quantity
@@ -357,11 +366,11 @@ class SaleOrder(models.Model):
             'state': 'draft',
             'procurement_group_id': False,
         })
-        orders.mapped('order_line').mapped('procurement_ids').write({'sale_line_id': False})
+        return orders.mapped('order_line').mapped('procurement_ids').write({'sale_line_id': False})
 
     @api.multi
     def action_cancel(self):
-        self.write({'state': 'cancel'})
+        return self.write({'state': 'cancel'})
 
     @api.multi
     def action_quotation_send(self):
@@ -410,7 +419,7 @@ class SaleOrder(models.Model):
 
     @api.multi
     def action_done(self):
-        self.write({'state': 'done'})
+        return self.write({'state': 'done'})
 
     @api.model
     def _prepare_procurement_group(self):
@@ -585,7 +594,7 @@ class SaleOrderLine(models.Model):
             if line.state != 'sale' or not line.product_id._need_procurement():
                 continue
             qty = 0.0
-            for proc in line.procurement_ids:
+            for proc in line.procurement_ids.filtered(lambda r: r.state != 'cancel'):
                 qty += proc.product_qty
             if float_compare(qty, line.product_uom_qty, precision_digits=precision) >= 0:
                 continue
@@ -789,7 +798,7 @@ class SaleOrderLine(models.Model):
                 lang=self.order_id.partner_id.lang,
                 partner=self.order_id.partner_id.id,
                 quantity=self.product_uom_qty,
-                date_order=self.order_id.date_order,
+                date=self.order_id.date_order,
                 pricelist=self.order_id.pricelist_id.id,
                 uom=self.product_uom.id,
                 fiscal_position=self.env.context.get('fiscal_position')

@@ -61,7 +61,7 @@ _unlink = logging.getLogger(__name__ + '.unlink')
 regex_order = re.compile('^(\s*([a-z0-9:_]+|"[a-z0-9:_]+")(\s+(desc|asc))?\s*(,|$))+(?<!,)$', re.I)
 regex_object_name = re.compile(r'^[a-z0-9_.]+$')
 regex_pg_name = re.compile(r'^[a-z_][a-z0-9_$]*$', re.I)
-onchange_v7 = re.compile(r"^(\w+)\((.*)\)$")
+onchange_v7 = re.compile(r"^([a-zA-Z]\w+)\((.*)\)$")
 
 AUTOINIT_RECALCULATE_STORED_FIELDS = 1000
 
@@ -751,7 +751,7 @@ class BaseModel(object):
                 field = cls._fields.get(name)
                 if not field:
                     _logger.warning("method %s.%s: @constrains parameter %r is not a field name", cls._name, attr, name)
-                elif not (field.store or field.column and field.column._fnct_inv):
+                elif not (field.store or field.column and field.column._fnct_inv or field.inherited):
                     _logger.warning("method %s.%s: @constrains parameter %r is not writeable", cls._name, attr, name)
             methods.append(func)
 
@@ -1914,7 +1914,8 @@ class BaseModel(object):
                     order = '"%s" %s' % (order_field, '' if len(order_split) == 1 else order_split[1])
                     orderby_terms.append(order)
             elif order_field in aggregated_fields:
-                orderby_terms.append(order_part)
+                order_split[0] = '"' + order_field + '"'
+                orderby_terms.append(' '.join(order_split))
             else:
                 # Cannot order by a field that will not appear in the results (needs to be grouped or aggregated)
                 _logger.warn('%s: read_group order by `%s` ignored, cannot sort on empty columns (not grouped/aggregated)',
@@ -4614,6 +4615,15 @@ class BaseModel(object):
                 return True
             return False
 
+        if self.is_transient():
+            # One single implicit access rule for transient models: owner only!
+            # This is ok because we assert that TransientModels always have
+            # log_access enabled, so that 'create_uid' is always there.
+            domain = [('create_uid', '=', uid)]
+            tquery = self._where_calc(cr, uid, domain, active_test=False)
+            apply_rule(tquery.where_clause, tquery.where_clause_params, tquery.tables)
+            return
+
         # apply main rules on the object
         rule_obj = self.pool.get('ir.rule')
         rule_where_clause, rule_where_clause_params, rule_tables = rule_obj.domain_get(cr, uid, self._name, mode, context=context)
@@ -4786,10 +4796,6 @@ class BaseModel(object):
             context = {}
         self.check_access_rights(cr, access_rights_uid or user, 'read')
 
-        # For transient models, restrict access to the current user, except for the super-user
-        if self.is_transient() and self._log_access and user != SUPERUSER_ID:
-            args = expression.AND(([('create_uid', '=', user)], args or []))
-
         query = self._where_calc(cr, user, args, context=context)
         self._apply_ir_rules(cr, user, query, 'read', context=context)
         order_by = self._generate_order_by(cr, user, order, query, context=context)
@@ -4892,7 +4898,8 @@ class BaseModel(object):
                                      if f not in default
                                      if f not in blacklist)
 
-        data = self.read(cr, uid, [id], fields_to_copy.keys(), context=context)
+        # Pass load=_classic_write to avoid useless name_get() calls
+        data = self.read(cr, uid, [id], fields_to_copy.keys(), load='_classic_write', context=context)
         if data:
             data = data[0]
         else:
@@ -4900,9 +4907,7 @@ class BaseModel(object):
 
         res = dict(default)
         for f, field in fields_to_copy.iteritems():
-            if field.type == 'many2one':
-                res[f] = data[f] and data[f][0]
-            elif field.type == 'one2many':
+            if field.type == 'one2many':
                 other = self.pool[field.comodel_name]
                 # duplicate following the order of the ids because we'll rely on
                 # it later for copying translations in copy_translation()!
@@ -4973,7 +4978,7 @@ class BaseModel(object):
                     # duplicated record is not linked to any module
                     del record['module']
                     record.update({'res_id': target_id})
-                    if user_lang and user_lang == record['lang']:
+                    if user_lang and user_lang == record['lang'] and field.translate is True:
                         # 'source' to force the call to _set_src
                         # 'value' needed if value is changed in copy(), want to see the new_value
                         record['source'] = old_record[field_name]
@@ -5787,16 +5792,19 @@ class BaseModel(object):
         return RecordCache(self)
 
     @api.model
-    def _in_cache_without(self, field):
-        """ Make sure ``self`` is present in cache (for prefetching), and return
-            the records of model ``self`` in cache that have no value for ``field``
-            (:class:`Field` instance).
+    def _in_cache_without(self, field, limit=PREFETCH_MAX):
+        """ Return records to prefetch that have no value in cache for ``field``
+            (:class:`Field` instance), including ``self``.
+            Return at most ``limit`` records.
         """
         env = self.env
         prefetch_ids = env.prefetch[self._name]
         prefetch_ids.update(self._ids)
         ids = filter(None, prefetch_ids - set(env.cache[field]))
-        return self.browse(ids)
+        recs = self.browse(ids)
+        if limit and len(recs) > limit:
+            recs = self + (recs - self)[:(limit - len(self))]
+        return recs
 
     @api.model
     def refresh(self):

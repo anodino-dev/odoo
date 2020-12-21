@@ -13,6 +13,7 @@ var session = require('web.session');
 var Sidebar = require('web.Sidebar');
 var utils = require('web.utils');
 var View = require('web.View');
+var $ = require('$');
 
 var Class = core.Class;
 var _t = core._t;
@@ -352,7 +353,7 @@ var ListView = View.extend( /** @lends instance.web.ListView# */ {
                     } else if (self.page > max_page_index) {
                         self.page = 0;
                     }
-                    self.reload_content();
+                    self.reload_content_when_ready();
                 }).find('.oe_list_pager_state')
                     .click(function (e) {
                         e.stopPropagation();
@@ -370,7 +371,7 @@ var ListView = View.extend( /** @lends instance.web.ListView# */ {
                                 var val = parseInt($select.val(), 10);
                                 self._limit = (isNaN(val) ? null : val);
                                 self.page = 0;
-                                self.reload_content();
+                                self.reload_content_when_ready();
                             }).blur(function() {
                                 $(this).trigger('change');
                             })
@@ -542,6 +543,12 @@ var ListView = View.extend( /** @lends instance.web.ListView# */ {
         });
         return reloaded.promise();
     }),
+    /**
+     * Proxy allowing override when reload_content can't be called directly
+     */
+    reload_content_when_ready: function() {
+        return this.reload_content.apply(this, arguments);
+    },
     reload: function () {
         return this.reload_content();
     },
@@ -714,6 +721,7 @@ var ListView = View.extend( /** @lends instance.web.ListView# */ {
             return field.name === name;
         });
         if (!action) { return; }
+        action = $.extend(true, {}, action);
         if ('confirm' in action && !window.confirm(action.confirm)) {
             return;
         }

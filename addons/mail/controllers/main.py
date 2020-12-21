@@ -14,7 +14,7 @@ from openerp.exceptions import AccessError
 from openerp.http import request
 from openerp.tools import consteq
 
-from openerp.addons.web.controllers.main import binary_content
+from openerp.addons.web.controllers.main import binary_content, Binary
 
 _logger = logging.getLogger(__name__)
 
@@ -112,7 +112,14 @@ class MailController(http.Controller):
     def read_followers(self, follower_ids):
         result = []
         is_editable = request.env.user.has_group('base.group_no_one')
-        for follower in request.env['mail.followers'].browse(follower_ids):
+        follower_recs = request.env['mail.followers'].sudo().browse(follower_ids)
+        if follower_recs:
+            mapped_data = {}
+            for follower_rec in follower_recs:
+                mapped_data.setdefault(follower_rec.res_model, set()).add(follower_rec.res_id)
+            for res_model, res_ids in mapped_data.iteritems():
+                request.env[res_model].browse(list(res_ids)).check_access_rule("read")
+        for follower in follower_recs:
             result.append({
                 'id': follower.id,
                 'name': follower.partner_id.name or follower.channel_id.name,
@@ -224,8 +231,7 @@ class MailController(http.Controller):
 
     @http.route('/mail/<string:res_model>/<int:res_id>/avatar/<int:partner_id>', type='http', auth='public')
     def avatar(self, res_model, res_id, partner_id):
-        headers = [[('Content-Type', 'image/png')]]
-        content = 'R0lGODlhAQABAIABAP///wAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='  # default image is one white pixel
+        content = None
         if res_model in request.env:
             try:
                 # if the current user has access to the document, get the partner avatar as sudo()
@@ -236,7 +242,12 @@ class MailController(http.Controller):
                         return werkzeug.wrappers.Response(status=304)
             except AccessError:
                 pass
-        image_base64 = base64.b64decode(content)
+        if content:
+            image_base64 = base64.b64decode(content)
+        else:
+            binary = Binary()
+            image_base64 = binary.placeholder(image='placeholder.png')  # could return (contenttype, content) in master
+            headers = binary.force_contenttype(headers, contenttype='image/png')
         headers.append(('Content-Length', len(image_base64)))
         response = request.make_response(image_base64, headers)
         response.status = str(status)

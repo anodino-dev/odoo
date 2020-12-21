@@ -23,11 +23,12 @@ class AccountInvoice(models.Model):
         purchase_line_ids = self.invoice_line_ids.mapped('purchase_line_id')
         purchase_ids = self.invoice_line_ids.mapped('purchase_id').filtered(lambda r: r.order_line <= purchase_line_ids)
 
-        result['domain'] = {'purchase_id': [
-            ('invoice_status', '=', 'to invoice'),
-            ('partner_id', 'child_of', self.partner_id.id),
-            ('id', 'not in', purchase_ids.ids),
-            ]}
+        domain = [('invoice_status', '=', 'to invoice')]
+        if self.partner_id:
+            domain += [('partner_id', 'child_of', self.partner_id.id)]
+        if purchase_ids:
+            domain += [('id', 'not in', purchase_ids.ids)]
+        result['domain'] = {'purchase_id': domain}
         return result
 
     def _prepare_invoice_line_from_po_line(self, line):
@@ -67,14 +68,13 @@ class AccountInvoice(models.Model):
             self.partner_id = self.purchase_id.partner_id.id
 
         new_lines = self.env['account.invoice.line']
-        for line in self.purchase_id.order_line:
-            # Load a PO line only once
-            if line in self.invoice_line_ids.mapped('purchase_line_id'):
-                continue
+        for line in self.purchase_id.order_line - self.invoice_line_ids.mapped('purchase_line_id'):
             data = self._prepare_invoice_line_from_po_line(line)
-            new_line = new_lines.new(data)
-            new_line._set_additional_fields(self)
-            new_lines += new_line
+            if data.get('quantity', 0.0):
+                # Only create lines with units
+                new_line = new_lines.new(data)
+                new_line._set_additional_fields(self)
+                new_lines += new_line
 
         self.invoice_line_ids += new_lines
         self.purchase_id = False
@@ -198,5 +198,5 @@ class AccountInvoiceLine(models.Model):
     _inherit = 'account.invoice.line'
 
     purchase_line_id = fields.Many2one('purchase.order.line', 'Purchase Order Line', ondelete='set null', index=True, readonly=True)
-    purchase_id = fields.Many2one('purchase.order', related='purchase_line_id.order_id', string='Purchase Order', store=False, readonly=True,
+    purchase_id = fields.Many2one('purchase.order', related='purchase_line_id.order_id', string='Purchase Order', store=False, readonly=True, related_sudo=False,
         help='Associated Purchase Order. Filled in automatically when a PO is chosen on the vendor bill.')

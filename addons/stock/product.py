@@ -85,7 +85,7 @@ class product_product(osv.osv):
         operator = context.get('compute_child', True) and 'child_of' or 'in'
         domain = context.get('force_company', False) and ['&', ('company_id', '=', context['force_company'])] or []
         locations = location_obj.browse(cr, uid, location_ids, context=context)
-        if operator == "child_of" and locations and locations[0].parent_left != 0:
+        if operator == "child_of" and locations and all(l.parent_left != 0 for l in locations):
             loc_domain = []
             dest_loc_domain = []
             for loc in locations:
@@ -341,6 +341,13 @@ class product_product(osv.osv):
                     'message' : _("You have products in stock that have no lot number.  You can assign serial numbers by doing an inventory.  ")
             }}
         return {}
+
+    def write(self, cr, uid, ids, vals, context=None):
+        res = super(product_product, self).write(cr, uid, ids, vals, context=context)
+        products = self.pool['product.product'].browse(cr, uid, ids, context=context)
+        if 'active' in vals and not vals['active'] and products.mapped('orderpoint_ids').filtered(lambda r: r.active):
+            raise UserError(_('You still have some active reordering rules on this product. Please archive or delete them first.'))
+        return res
 
 
 class product_template(osv.osv):
